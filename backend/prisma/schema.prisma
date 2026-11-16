@@ -1,0 +1,118 @@
+// SENTINEX database schema (PostgreSQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  SUPERVISOR
+  VIEWER
+}
+
+enum PpeType {
+  helmet
+  vest
+  gloves
+  goggles
+  shoes
+}
+
+enum Severity {
+  high
+  medium
+  low
+}
+
+enum IncidentStatus {
+  open
+  reviewed
+  resolved
+}
+
+enum CameraStatus {
+  online
+  idle
+  offline
+}
+
+enum WorkerStatus {
+  compliant
+  violation
+  on_break
+  off_shift
+}
+
+/// Dashboard users (UC-09 login and roles)
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(VIEWER)
+  /// ID printed on the user's login card ("Scan login card")
+  cardId       String?  @unique
+  createdAt    DateTime @default(now())
+}
+
+/// Registered cameras (UC-08)
+model Camera {
+  id        String       @id // e.g. CAM-01
+  name      String
+  zone      String
+  status    CameraStatus @default(online)
+  incidents Incident[]
+  checks    PpeCheck[]
+  workers   Worker[]
+}
+
+/// One PPE violation found by the detector (UC-07 writes these rows)
+model Incident {
+  id         Int            @id @default(autoincrement())
+  code       String         @unique // e.g. INC-1042
+  ts         DateTime
+  camera     Camera         @relation(fields: [cameraId], references: [id])
+  cameraId   String
+  ppe        PpeType // which PPE item was missing
+  severity   Severity
+  status     IncidentStatus @default(open)
+  confidence Float
+  trackId    Int
+  source     String // video clip or stream the detection came from
+  createdAt  DateTime       @default(now())
+
+  @@index([ts])
+  @@index([cameraId, ts])
+  @@index([status])
+}
+
+/// How many PPE checks the detector ran per camera per hour (used for the compliance %)
+model PpeCheck {
+  id        Int      @id @default(autoincrement())
+  camera    Camera   @relation(fields: [cameraId], references: [id])
+  cameraId  String
+  hourStart DateTime
+  count     Int
+
+  @@unique([cameraId, hourStart])
+  @@index([hourStart])
+}
+
+model Worker {
+  id          String       @id // e.g. W-101
+  name        String
+  jobRole     String
+  camera      Camera?      @relation(fields: [cameraId], references: [id])
+  cameraId    String?
+  /// PPE this worker must wear (rules come from role / zone)
+  requiredPpe PpeType[]
+  status      WorkerStatus
+  /// Set while status = violation
+  missingPpe  PpeType?
+  lastSeenAt  DateTime
+}
